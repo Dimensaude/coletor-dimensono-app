@@ -4,7 +4,6 @@ import '../band_api.dart';
 import '../theme.dart';
 
 const urlPoliticaPrivacidade = 'https://dimensono.com.br/privacidade';
-const urlCodigoFonte = 'https://github.com/Dimensaude/coletor-dimensono-app';
 
 /// Abre um link no navegador pelo canal nativo; avisa se não der.
 Future<void> abrirLink(BuildContext context, String url) async {

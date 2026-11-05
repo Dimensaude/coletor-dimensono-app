@@ -4,7 +4,6 @@ import '../app_state.dart';
 import '../band_api.dart';
 import '../theme.dart';
 import '../widgets.dart';
-import 'consentimento_texto.dart';
 import 'pair_screen.dart';
 
 /// What the privacy screen shows for the participant code: nothing before it is released, and only the last
@@ -121,7 +120,6 @@ class _PrivacyScreenState extends State<PrivacyScreen> with WidgetsBindingObserv
                   'protocolo aberto do Gadgetbridge (AGPL-3.0), por isso o código também é AGPL-3.0.',
                   style: TextStyle(fontSize: 12, height: 1.45, color: AppColors.faint),
                 ),
-                LinkTexto(texto: 'Código-fonte: github.com/Dimensaude/coletor-dimensono-app', url: urlCodigoFonte),
               ]),
             ),
           ],

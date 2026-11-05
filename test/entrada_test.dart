@@ -704,17 +704,14 @@ void main() {
     expect(urls, ['https://dimensono.com.br/privacidade', 'https://dimensono.com.br/exclusao']);
   });
 
-  testWidgets('Privacidade e dados: link do codigo-fonte AGPL abre pelo nativo', (t) async {
+  testWidgets('Privacidade e dados: mantem o aviso AGPL sem link do codigo-fonte (pedido do Bruno)', (t) async {
     t.view.physicalSize = const Size(800, 2400);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
     await t.pumpWidget(MaterialApp(home: PrivacyScreen(app: app)));
     await t.pump();
-    await t.ensureVisible(find.textContaining('Código-fonte: github.com/Dimensaude/coletor-dimensono-app'));
-    await t.tap(find.textContaining('Código-fonte: github.com/Dimensaude/coletor-dimensono-app'));
-    await t.pump();
-    final urls = calls.where((c) => c.method == 'openUrl').map((c) => (c.arguments as Map)['url']).toList();
-    expect(urls, ['https://github.com/Dimensaude/coletor-dimensono-app']);
+    expect(find.textContaining('o código também é AGPL-3.0'), findsOneWidget);
+    expect(find.textContaining('github.com'), findsNothing);
   });
 
   test('nascimento: valida dia, mes, ano de 4 digitos, 1900 e data futura', () {
