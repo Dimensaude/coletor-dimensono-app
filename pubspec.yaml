@@ -1,0 +1,25 @@
+name: bandsono
+description: "Coletor Dimensono — conecta à Huawei Band 10 e envia os dados brutos ao Supabase (protocolo baseado no Gadgetbridge)."
+publish_to: 'none'
+version: 1.7.0+10
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Jakarta
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans.ttf
+    - family: SourceSerif
+      fonts:
+        - asset: assets/fonts/SourceSerif4.ttf

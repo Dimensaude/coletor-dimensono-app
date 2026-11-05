@@ -1,0 +1,7 @@
+# No external lint package needed (keeps the build free of extra dependencies).
+analyzer:
+  errors:
+    deprecated_member_use: ignore
+  exclude:
+    - build/**
+    - android/**

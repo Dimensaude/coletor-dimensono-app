@@ -1,0 +1,95 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate the Android scaffold (existing files are kept)
+        run: flutter create --platforms=android --org br.dimensono --project-name bandsono .
+
+      - name: Set minSdk 26
+        run: |
+          F=android/app/build.gradle.kts
+          [ -f "$F" ] || F=android/app/build.gradle
+          sed -i -E 's/minSdk[[:space:]]*=[[:space:]]*flutter\.minSdkVersion/minSdk = 26/; s/minSdkVersion[[:space:]]+flutter\.minSdkVersion/minSdkVersion 26/' "$F"
+          grep -nE "minSdk" "$F"
+          grep -qE "minSdk( =|Version) 26" "$F" || { echo "Could not set minSdk to 26 in $F"; exit 1; }
+
+      - name: Pin NDK to the runner's preinstalled version (avoids flaky NDK download)
+        run: |
+          F=android/app/build.gradle.kts
+          [ -f "$F" ] || F=android/app/build.gradle
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          NDK_VER=""
+          if [ -d "$SDK/ndk" ]; then NDK_VER=$(ls "$SDK/ndk" 2>/dev/null | sort -V | tail -1); fi
+          echo "Preinstalled NDK: ${NDK_VER:-<none>}"
+          if [ -n "$NDK_VER" ]; then
+            if grep -qE "ndkVersion" "$F"; then
+              sed -i -E "s/ndkVersion[[:space:]]*=[[:space:]]*flutter\.ndkVersion/ndkVersion = \"$NDK_VER\"/; s/ndkVersion[[:space:]]+flutter\.ndkVersion/ndkVersion \"$NDK_VER\"/" "$F"
+            else
+              sed -i -E "0,/android[[:space:]]*\{/s//android {\n    ndkVersion = \"$NDK_VER\"/" "$F"
+            fi
+            echo "Pinned ndkVersion:"; grep -nE "ndkVersion" "$F" || true
+          else
+            echo "No preinstalled NDK found; installing 28.2.13676358 with retries."
+            for i in 1 2 3; do
+              yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" && break
+              echo "sdkmanager attempt $i failed; retrying in 5s"; sleep 5
+            done
+          fi
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Analyze (report only)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+
+      - name: Unit tests (report only)
+        run: flutter test || true
+
+      # Same release key on every build, so a new APK installs as an update (not "app não instalado").
+      # Secrets: COLETOR_KEYSTORE_BASE64 (base64 of coletor-release.jks), COLETOR_KEY_PASSWORD,
+      # COLETOR_PROPERTIES (contents of assets/coletor.properties: server URL + collector key).
+      - name: Release signing and distribution config
+        env:
+          KEYSTORE_B64: ${{ secrets.COLETOR_KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.COLETOR_KEY_PASSWORD }}
+          COLETOR_PROPERTIES: ${{ secrets.COLETOR_PROPERTIES }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Release key secrets missing: the APK would not update existing installs"; exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > android/coletor-release.jks
+          printf 'storeFile=../coletor-release.jks\nstorePassword=%s\nkeyAlias=coletor\nkeyPassword=%s\n' "$KEY_PASSWORD" "$KEY_PASSWORD" > android/key.properties
+          python3 tools/apply-release-signing.py .
+          if [ -n "$COLETOR_PROPERTIES" ]; then printf '%s\n' "$COLETOR_PROPERTIES" > android/app/src/main/assets/coletor.properties; fi
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandsono-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

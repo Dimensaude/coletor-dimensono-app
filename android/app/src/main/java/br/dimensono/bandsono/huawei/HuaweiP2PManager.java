@@ -1,0 +1,153 @@
+/*  Copyright (C) 2024-2025 Me7c7
+
+    This file is part of Gadgetbridge.
+
+    Gadgetbridge is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Gadgetbridge is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+package br.dimensono.bandsono.huawei;
+
+
+import br.dimensono.bandsono.log.Logger;
+import br.dimensono.bandsono.log.LoggerFactory;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import br.dimensono.bandsono.huawei.HuaweiPacket;
+import br.dimensono.bandsono.huawei.HuaweiTLV;
+import br.dimensono.bandsono.huawei.packets.P2P;
+import br.dimensono.bandsono.huawei.p2p.HuaweiBaseP2PService;
+import br.dimensono.bandsono.huawei.requests.SendP2PCommand;
+
+public class HuaweiP2PManager {
+    private final Logger LOG = LoggerFactory.getLogger(HuaweiP2PManager.class);
+
+    private final HuaweiSupportProvider support;
+
+    private final List<HuaweiBaseP2PService> registeredServices;
+
+
+    private short sequence = 1;
+
+    public synchronized short getNextSequence() {
+        sequence = (short) ((sequence + 1) % (Short.MAX_VALUE - 1));
+        return sequence;
+    }
+
+    public HuaweiP2PManager(HuaweiSupportProvider support) {
+        this.support = support;
+        this.registeredServices = new ArrayList<>();
+    }
+
+    public HuaweiSupportProvider getSupportProvider() {
+        return support;
+    }
+
+    public void registerService(HuaweiBaseP2PService service) {
+        for (HuaweiBaseP2PService svr : registeredServices) {
+            if (svr.getModule().equals(service.getModule())) {
+                LOG.error("P2P Service already registered, unregister: {}", service.getModule());
+                svr.unregister();
+                registeredServices.remove(svr);
+            }
+        }
+        registeredServices.add(service);
+        service.registered();
+    }
+
+    public HuaweiBaseP2PService getRegisteredService(String module) {
+        for (HuaweiBaseP2PService svr : registeredServices) {
+            if (svr.getModule().equals(module)) {
+                return svr;
+            }
+        }
+        return null;
+    }
+
+    public void unregisterAllService() {
+        for (HuaweiBaseP2PService svr : registeredServices) {
+            svr.unregister();
+        }
+        registeredServices.clear();
+    }
+
+    public void sendAck(short sequence, String srcPackage, String dstPackage, int code) {
+        try {
+            SendP2PCommand test = new SendP2PCommand(this.getSupportProvider(), (byte) 3, sequence, srcPackage, dstPackage, null, null, null, code);
+            test.doPerform();
+        } catch (IOException e) {
+            LOG.error("P2P Service error send ACK", e);
+        }
+    }
+
+    /** Deep links from the band to the Huawei Health app are not supported. */
+    public int handleLink(String link) {
+        return 0xd2;
+    }
+
+    public int handleWakeApp(P2P.P2PCommand.Response packet) {
+        if (packet.respData == null || packet.respData.length == 0) {
+            return 0xcc;
+        }
+
+        HuaweiTLV tlv = new HuaweiTLV();
+        tlv.parse(packet.respData);
+        String link = "";
+        if(tlv.contains(0x04)) {
+            try {
+                link = tlv.getString(0x04);
+            } catch (HuaweiPacket.MissingTagException e) {
+                LOG.error("P2P Service error get link", e);
+            }
+        }
+
+        if (link != null && !link.isEmpty()) {
+            return handleLink(link);
+        }
+        // TODO: support other TLV.
+        return 0xcd;
+    }
+
+
+    public void handleFile(String srcPackage, String dstPackage, String srcFingerprint, String dstFingerprint, String filename, byte[] data) {
+        // NOTE: Maybe packet should be found by dstPacket or as a pair package + fingerprint
+        for (HuaweiBaseP2PService service : registeredServices) {
+            if (service.getPackage().equals(srcPackage)) {
+                service.handleFile(filename, data);
+            }
+        }
+    }
+
+    public void handlePacket(P2P.P2PCommand.Response packet) {
+        LOG.info("P2P Service message: Src: {} Dst: {} Seq: {}", packet.srcPackage, packet.dstPackage, packet.sequenceId);
+        LOG.debug("P2P Service message: cmd: {} code: {} data: {}",
+                packet.cmdId, packet.respCode,
+                packet.respData == null ? "null" : br.dimensono.bandsono.huawei.util.GB.hexdump(packet.respData));
+        if(packet.cmdId == 1) {
+            String[] split = packet.dstPackage.split("\\.");
+            if (split.length > 2 && split[2].equals("wakeapp")) {
+                int code = handleWakeApp(packet);
+                sendAck(packet.sequenceId, packet.dstPackage, packet.srcPackage, code);
+                return;
+            }
+        }
+        for (HuaweiBaseP2PService service : registeredServices) {
+            if (service.getPackage().equals(packet.srcPackage)) {
+                service.handlePacket(packet);
+            }
+        }
+    }
+}
